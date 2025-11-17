@@ -58,7 +58,7 @@ def load_competitions_from_sheet(sheet_url: str) -> pd.DataFrame:
         records = ws.get_all_records()
         df = pd.DataFrame(records)
 
-        required = {"Compétition", "URL"}
+        required = {"Country", "Competition", "URL"}
         if not required.issubset(set(df.columns)):
             st.error(f"Le Google Sheet doit contenir les colonnes {required}. Colonnes trouvées : {list(df.columns)}")
             return pd.DataFrame()
