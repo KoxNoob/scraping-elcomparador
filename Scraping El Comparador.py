@@ -1,9 +1,8 @@
-# app.py
+# -*- coding: utf-8 -*-
 import streamlit as st
 from selenium import webdriver
-from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.firefox.options import Options
-from webdriver_manager.firefox import GeckoDriverManager
+from selenium.webdriver.firefox.service import Service
 from bs4 import BeautifulSoup
 import pandas as pd
 import time
@@ -17,73 +16,71 @@ def init_driver(headless=True):
         options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    service = Service(GeckoDriverManager().install())
-    driver = webdriver.Firefox(service=service, options=options)
+
+    # Use system geckodriver (no webdriver-manager)
+    driver = webdriver.Firefox(options=options)
     return driver
 
 # ---------------------------
-# Odds scraping function
+# Scraping El Comparador Primera Division
 # ---------------------------
-def scrape_matches_elcomparador(url, bookmakers=None, headless=True):
-    """
-    Scrape match odds from El Comparador for a given URL.
-    Returns a DataFrame with columns: ['Match','Bookmaker','Home','Draw','Away','TRJ (%)']
-    """
-    if bookmakers is None:
-        bookmakers = ["bet365", "codere", "williamhill", "bwin", "sportium", "888sport", "marathon", "betsson"]
-
-    driver = init_driver(headless=headless)
+def scrape_primera_division():
+    url = "http://www.elcomparador.com/futbol/espa%C3%B1a/primeradivision"
+    driver = init_driver()
     driver.get(url)
-    time.sleep(4)
+    time.sleep(4)  # wait for JS to load
     html = driver.page_source
     driver.quit()
 
     soup = BeautifulSoup(html, "html.parser")
     rows = []
 
+    bookmakers = ["bet365", "codere", "williamhill", "bwin", "sportium", "888sport", "marathon", "betsson"]
+
     for match_div in soup.find_all("div", id="fila_evento"):
+        # Get teams
         teams_div = match_div.find("div", id="celda_evento_partido")
-        if not teams_div:
+        if teams_div:
+            teams = " - ".join([t.strip() for t in teams_div.stripped_strings if "Estadísticas" not in t and "Pronósticos" not in t])
+            if teams == "Evento":
+                continue
+        else:
             continue
-        match_name = " - ".join([t.strip() for t in teams_div.stripped_strings if "Estadísticas" not in t and "Pronósticos" not in t])
-        if match_name == "Evento":
-            continue
+
+        home_odds, draw_odds, away_odds = [], [], []
 
         cuotas_divs = match_div.find_all("div", id="fila_cuotas")
-        if len(cuotas_divs) < 3:
-            continue
+        if len(cuotas_divs) >= 3:
+            for idx, fila in enumerate(cuotas_divs[:3]):
+                cells = fila.find_all("div", id="celda_cuotas")[1:]  # skip first (apuesta)
+                odds = [cell.get_text(strip=True) if cell.get_text(strip=True) else "-" for cell in cells]
 
-        def extract_odds(fila):
-            cells = fila.find_all("div", id="celda_cuotas")[1:]  # skip first label
-            return [cell.get_text(strip=True) if cell.get_text(strip=True) else "-" for cell in cells]
+                if idx == 0:
+                    home_odds = odds
+                elif idx == 1:
+                    draw_odds = odds
+                elif idx == 2:
+                    away_odds = odds
+        else:
+            home_odds, draw_odds, away_odds = ["-"]*len(bookmakers), ["-"]*len(bookmakers), ["-"]*len(bookmakers)
 
-        home_odds = extract_odds(cuotas_divs[0])
-        draw_odds = extract_odds(cuotas_divs[1])
-        away_odds = extract_odds(cuotas_divs[2])
-
-        for i, bookmaker in enumerate(bookmakers):
-            h = home_odds[i] if i < len(home_odds) else "-"
-            d = draw_odds[i] if i < len(draw_odds) else "-"
-            a = away_odds[i] if i < len(away_odds) else "-"
-
-            # Calculate TRJ %
+        for i, bm in enumerate(bookmakers):
+            row = {
+                "Match": teams,
+                "Bookmaker": bm,
+                "1": home_odds[i] if i < len(home_odds) else "-",
+                "X": draw_odds[i] if i < len(draw_odds) else "-",
+                "2": away_odds[i] if i < len(away_odds) else "-"
+            }
+            # Calculate TRJ
             try:
-                if h != "-" and d != "-" and a != "-":
-                    trj = 100 / (1/float(h.replace(",", ".")) + 1/float(d.replace(",", ".")) + 1/float(a.replace(",", ".")))
-                    trj = round(trj, 2)
-                else:
-                    trj = None
+                h = float(row["1"])
+                d = float(row["X"])
+                a = float(row["2"])
+                row["TRJ (%)"] = round((1/h + 1/d + 1/a)*100, 2)
             except:
-                trj = None
-
-            rows.append({
-                "Match": match_name,
-                "Bookmaker": bookmaker,
-                "Home": h,
-                "Draw": d,
-                "Away": a,
-                "TRJ (%)": trj
-            })
+                row["TRJ (%)"] = "-"
+            rows.append(row)
 
     df = pd.DataFrame(rows)
     return df
@@ -91,33 +88,16 @@ def scrape_matches_elcomparador(url, bookmakers=None, headless=True):
 # ---------------------------
 # Streamlit UI
 # ---------------------------
-def main():
-    st.title("📊 Primera División Odds Scraper")
+st.title("⚽ Primera Division Odds Scraper")
 
-    # Fixed URL for Primera División
-    primera_div_url = "http://www.elcomparador.com/futbol/espa%C3%B1a/primeradivision"
-
-    all_bookmakers = ["bet365", "codere", "williamhill", "bwin", "sportium", "888sport", "marathon", "betsson"]
-    selected_bookmakers = st.multiselect(
-        "Select bookmakers to scrape",
-        all_bookmakers,
-        default=all_bookmakers
-    )
-
-    nb_matches = st.slider("Number of matches to show (top N)", 1, 20, 10)
-
-    if st.button("🔍 Start scraping"):
-        with st.spinner("Scraping Primera División odds..."):
-            df = scrape_matches_elcomparador(primera_div_url, selected_bookmakers)
-            if not df.empty:
-                # Limit to top N matches
-                match_order = df["Match"].drop_duplicates().tolist()[:nb_matches]
-                df = df[df["Match"].isin(match_order)].reset_index(drop=True)
-
-                st.subheader(f"📌 Retrieved Odds (showing top {nb_matches} matches)")
-                st.dataframe(df)
-            else:
-                st.warning("No odds retrieved. Check your connection or try again later.")
-
-if __name__ == "__main__":
-    main()
+if st.button("🔍 Scrape Primera Division"):
+    with st.spinner("Scraping in progress..."):
+        df = scrape_primera_division()
+        if not df.empty:
+            st.subheader("📌 Odds by Bookmaker")
+            st.dataframe(df)
+            # Optionally CSV download
+            csv = df.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download CSV", csv, "primera_division_odds.csv", "text/csv")
+        else:
+            st.info("No data retrieved.")
