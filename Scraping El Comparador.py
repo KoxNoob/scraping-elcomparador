@@ -243,7 +243,7 @@ def main():
                     for idx, comp in enumerate(selected_competitions):
                         # récupérer URL depuis sheet
                         try:
-                            comp_url = competitions_df.loc[competitions_df["Compétition"] == comp, "URL"].values[0]
+                            comp_url = competitions_df.loc[competitions_df["Competition"] == comp, "URL"].values[0]
                         except Exception:
                             st.error(f"URL introuvable pour la compétition {comp}. Vérifie le Google Sheet.")
                             continue
