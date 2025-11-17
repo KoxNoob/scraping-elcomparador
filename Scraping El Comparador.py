@@ -226,7 +226,7 @@ def main():
             return
 
         # Multiselect des compétitions (colonne "Compétition")
-        selected_competitions = st.multiselect("📌 Select competitions", competitions_df["Competition"].tolist(), default=competitions_df["Compétition"].tolist()[:1])
+        selected_competitions = st.multiselect("📌 Select competitions", competitions_df["Competition"].tolist(), default=competitions_df["Competition"].tolist()[:1])
 
         if selected_competitions:
             # Bookmakers (8 demandés)
